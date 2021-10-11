@@ -286,16 +286,17 @@ public class FusionClientDemo {
 
 		PaymentData paymentData = new PaymentData.Builder()//
 				.paymentType(PaymentType.Normal)//
-				.paymentInstrumentData(paymentInstrumentData).build();
+				.paymentInstrumentData(paymentInstrumentData)//
+				.build();
 
 		PaymentTransaction paymentTransaction = new PaymentTransaction.Builder()//
 				.amountsReq(amountsReq)//
 				.addSaleItem(saleItem)//
-				.paymentData(paymentData)//
 				.build();
 
 		PaymentRequest paymentRequest = new PaymentRequest.Builder()//
 				.paymentTransaction(paymentTransaction)//
+				.paymentData(paymentData)//
 				.saleData(saleData).build();
 
 		// Message Header
