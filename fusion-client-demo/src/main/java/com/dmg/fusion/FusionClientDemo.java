@@ -25,11 +25,11 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.websocket.DeploymentException;
 
-import com.dmg.fusion.client.FusionClient;
-import com.dmg.fusion.config.FusionClientConfig;
-import com.dmg.fusion.config.SaleSystemConfig;
-import com.dmg.fusion.util.MessageHeaderUtil;
-import com.dmg.fusion.util.SecurityTrailerUtil;
+import au.com.dmg.fusion.client.FusionClient;
+import au.com.dmg.fusion.config.FusionClientConfig;
+import au.com.dmg.fusion.config.SaleSystemConfig;
+import au.com.dmg.fusion.util.MessageHeaderUtil;
+import au.com.dmg.fusion.util.SecurityTrailerUtil;
 
 import au.com.dmg.fusion.MessageHeader;
 import au.com.dmg.fusion.data.MessageCategory;
