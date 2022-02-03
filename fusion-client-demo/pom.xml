@@ -19,12 +19,12 @@
 		<dependency>
 			<groupId>com.datameshgroup.fusion</groupId>
 			<artifactId>fusion-sdk</artifactId>
-			<version>1.0.2</version>
+			<version>1.2.2</version>
 		</dependency>
 		<dependency>
 			<groupId>com.datameshgroup.fusion</groupId>
 			<artifactId>fusion-cloud</artifactId>
-			<version>1.0.0</version>
+			<version>1.0.2</version>
 		</dependency>
 	</dependencies>
 
