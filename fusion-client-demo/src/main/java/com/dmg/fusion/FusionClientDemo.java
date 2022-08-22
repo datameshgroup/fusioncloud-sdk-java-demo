@@ -49,8 +49,8 @@ public class FusionClientDemo {
 
 	static {
 		initConfig();
-		SALE_ID = "VA POS";//"SALE ID"; // test environment only - replace for production
-		POI_ID = "DMGVA001"; //"POI ID"; // test environment only - replace for production
+		SALE_ID = "SALE ID"; // test environment only - replace for production
+		POI_ID = "POI ID"; // test environment only - replace for production
 	}
 
 	public static void main(String[] args) {
