@@ -96,7 +96,7 @@ public class FusionClientDemo {
 	}
 	
 	private static void initConfig() {
-		String certificateLocation = "src/main/resources/root.crt"; // test environment only - replace for production
+		String ENV = "DEV"; // test environment only - replace for production
 		String serverDomain = "wss://www.cloudposintegration.io/nexodev"; // test environment only - replace for production
 		String socketProtocol = "TLSv1.2";
 
@@ -110,9 +110,9 @@ public class FusionClientDemo {
 		String certificationCode = "98cf9dfc-0db7-4a92-8b8cb66d4d2d7169"; // test environment only - replace for production
 
 		try {
-			FusionClientConfig.init(certificateLocation, serverDomain, socketProtocol);
+			FusionClientConfig.init(serverDomain, socketProtocol);
 			KEKConfig.init(kekValue, keyIdentifier, keyVersion);
-			SaleSystemConfig.init(providerIdentification, applicationName, softwareVersion, certificationCode);
+			SaleSystemConfig.init(providerIdentification, applicationName, softwareVersion, ENV);
 		} catch (ConfigurationException e) {
 			System.out.println(e); // Ensure all config fields have values
 		}
