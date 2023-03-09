@@ -63,17 +63,17 @@ public class FusionClientDemo {
 	}
 	
 	private static void initConfig() {
-		SALE_ID = isTestEnvironment ? "VA POS"  : "DMGProductionVerificationTest2";
-		POI_ID = isTestEnvironment ? "DMGVA001" : "E3330010";
+		SALE_ID = isTestEnvironment ? ""  : "";
+		POI_ID = isTestEnvironment ? "" : "";
 
 		fusionClientConfig.saleID = SALE_ID;
 		fusionClientConfig.poiID = POI_ID;
-		fusionClientConfig.providerIdentification = isTestEnvironment ? "Company A" : "H_L";
-		fusionClientConfig.applicationName = isTestEnvironment ? "POS Retail" : "Exceed";
-		fusionClientConfig.softwareVersion = isTestEnvironment ? "01.00.00" : "9.0.0.0";
-		fusionClientConfig.certificationCode = isTestEnvironment ? "98cf9dfc-0db7-4a92-8b8cb66d4d2d7169" : "01c99f18-7093-4d77-b6f6-2c762c8ed698";
+		fusionClientConfig.providerIdentification = isTestEnvironment ? "" : "";
+		fusionClientConfig.applicationName = isTestEnvironment ? "" : "";
+		fusionClientConfig.softwareVersion = isTestEnvironment ? "" : "";
+		fusionClientConfig.certificationCode = isTestEnvironment ? "" : "";
 
-		fusionClientConfig.kekValue = isTestEnvironment ? "44DACB2A22A4A752ADC1BBFFE6CEFB589451E0FFD83F8B21" : "ba92ab29e9918943167325f4ea1f5d9b5ee679ea89a82f2c";
+		fusionClientConfig.kekValue = isTestEnvironment ? "" : "";
 		try {
 			fusionClient.init(fusionClientConfig);
 		} catch (ConfigurationException | DeploymentException | CertificateException | URISyntaxException |
