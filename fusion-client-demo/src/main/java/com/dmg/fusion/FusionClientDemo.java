@@ -1,130 +1,95 @@
 package com.dmg.fusion;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.math.BigDecimal;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyManagementException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
-import java.security.spec.InvalidKeySpecException;
-import java.text.SimpleDateFormat;
-import java.time.Instant;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.naming.ConfigurationException;
-import javax.websocket.DeploymentException;
-
-import au.com.dmg.fusion.MessageHeader;
 import au.com.dmg.fusion.client.FusionClient;
 import au.com.dmg.fusion.config.FusionClientConfig;
-import au.com.dmg.fusion.config.KEKConfig;
 import au.com.dmg.fusion.config.SaleSystemConfig;
-import au.com.dmg.fusion.data.ErrorCondition;
-import au.com.dmg.fusion.data.MessageCategory;
-import au.com.dmg.fusion.data.MessageClass;
-import au.com.dmg.fusion.data.MessageType;
-import au.com.dmg.fusion.data.PaymentInstrumentType;
-import au.com.dmg.fusion.data.PaymentType;
-import au.com.dmg.fusion.data.SaleCapability;
-import au.com.dmg.fusion.data.TerminalEnvironment;
-import au.com.dmg.fusion.data.UnitOfMeasure;
+import au.com.dmg.fusion.data.*;
 import au.com.dmg.fusion.exception.NotConnectedException;
 import au.com.dmg.fusion.request.SaleTerminalData;
 import au.com.dmg.fusion.request.SaleToPOIRequest;
 import au.com.dmg.fusion.request.loginrequest.LoginRequest;
 import au.com.dmg.fusion.request.loginrequest.SaleSoftware;
-import au.com.dmg.fusion.request.paymentrequest.AmountsReq;
-import au.com.dmg.fusion.request.paymentrequest.PaymentData;
-import au.com.dmg.fusion.request.paymentrequest.PaymentInstrumentData;
-import au.com.dmg.fusion.request.paymentrequest.PaymentRequest;
-import au.com.dmg.fusion.request.paymentrequest.PaymentTransaction;
-import au.com.dmg.fusion.request.paymentrequest.SaleData;
-import au.com.dmg.fusion.request.paymentrequest.SaleItem;
-import au.com.dmg.fusion.request.paymentrequest.SaleTransactionID;
+import au.com.dmg.fusion.request.paymentrequest.*;
 import au.com.dmg.fusion.request.transactionstatusrequest.MessageReference;
 import au.com.dmg.fusion.request.transactionstatusrequest.TransactionStatusRequest;
 import au.com.dmg.fusion.response.Response;
 import au.com.dmg.fusion.response.ResponseResult;
 import au.com.dmg.fusion.response.SaleToPOIResponse;
-import au.com.dmg.fusion.securitytrailer.SecurityTrailer;
 import au.com.dmg.fusion.util.MessageHeaderUtil;
-import au.com.dmg.fusion.util.SecurityTrailerUtil;
+
+import javax.naming.ConfigurationException;
+import javax.websocket.DeploymentException;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.net.URISyntaxException;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Optional;
+import java.util.concurrent.*;
 
 public class FusionClientDemo {
+	//UPDATE TO CHANGE ENVIRONMENT
+	public static Boolean isTestEnvironment = true;
 
-	public static final String SALE_ID;
-	public static final String POI_ID;
-	private static final FusionClient fusionClient = new FusionClient();
+	public static String SALE_ID;
+	public static String POI_ID;
+	public static FusionClientConfig fusionClientConfig;
 
 	static {
-		initConfig();
-		SALE_ID = "SALE ID"; // test environment only - replace for production
-		POI_ID = "POI ID"; // test environment only - replace for production
+		fusionClientConfig = new FusionClientConfig(isTestEnvironment);
 	}
 
+	private static FusionClient fusionClient = new FusionClient();
+
 	public static void main(String[] args) {
-		try {
-			fusionClient.connect(new URI(FusionClientConfig.getInstance().getServerDomain()));
+			// This will connect to the websocket
+			initConfig();
 
 			doLogin();
 			doPayment();
 
+		try {
 			fusionClient.disconnect();
-			System.out.println("Disconnected from websocket server");
-		} catch (ConfigurationException e) {
-			System.out.println(e);
-		} catch (KeyManagementException | NoSuchAlgorithmException | DeploymentException | IOException
-				| URISyntaxException | CertificateException | KeyStoreException e) {
-			System.out.println(e);
+		} catch (IOException e) {
+			throw new RuntimeException(e);
 		}
+
 	}
 	
 	private static void initConfig() {
-		String certificateLocation = "src/main/resources/root.crt"; // test environment only - replace for production
-		String serverDomain = "wss://www.cloudposintegration.io/nexodev"; // test environment only - replace for production
-		String socketProtocol = "TLSv1.2";
+		SALE_ID = isTestEnvironment ? "VA POS"  : "DMGProductionVerificationTest2";
+		POI_ID = isTestEnvironment ? "DMGVA001" : "E3330010";
 
-		String kekValue = "44DACB2A22A4A752ADC1BBFFE6CEFB589451E0FFD83F8B21"; // test environment only - replace for production
-		String keyIdentifier = "SpecV2TestMACKey"; // test environment only - replace for production
-		String keyVersion = "20191122164326.594"; // test environment only - replace for production
+		fusionClientConfig.saleID = SALE_ID;
+		fusionClientConfig.poiID = POI_ID;
+		fusionClientConfig.providerIdentification = isTestEnvironment ? "Company A" : "H_L";
+		fusionClientConfig.applicationName = isTestEnvironment ? "POS Retail" : "Exceed";
+		fusionClientConfig.softwareVersion = isTestEnvironment ? "01.00.00" : "9.0.0.0";
+		fusionClientConfig.certificationCode = isTestEnvironment ? "98cf9dfc-0db7-4a92-8b8cb66d4d2d7169" : "01c99f18-7093-4d77-b6f6-2c762c8ed698";
 
-		String providerIdentification = "Company A"; // test environment only - replace for production
-		String applicationName = "POS Retail"; // test environment only - replace for production
-		String softwareVersion = "01.00.00"; // test environment only - replace for production
-		String certificationCode = "98cf9dfc-0db7-4a92-8b8cb66d4d2d7169"; // test environment only - replace for production
-
+		fusionClientConfig.kekValue = isTestEnvironment ? "44DACB2A22A4A752ADC1BBFFE6CEFB589451E0FFD83F8B21" : "ba92ab29e9918943167325f4ea1f5d9b5ee679ea89a82f2c";
 		try {
-			FusionClientConfig.init(certificateLocation, serverDomain, socketProtocol);
-			KEKConfig.init(kekValue, keyIdentifier, keyVersion);
-			SaleSystemConfig.init(providerIdentification, applicationName, softwareVersion, certificationCode);
-		} catch (ConfigurationException e) {
-			System.out.println(e); // Ensure all config fields have values
+			fusionClient.init(fusionClientConfig);
+		} catch (ConfigurationException | DeploymentException | CertificateException | URISyntaxException |
+				 IOException | NoSuchAlgorithmException | KeyStoreException | KeyManagementException e) {
+			throw new RuntimeException(e);
 		}
 	}
 
 	private static void doLogin() {
-		SaleToPOIRequest loginRequest = null;
+		String currentServiceID = MessageHeaderUtil.generateServiceID(10);
+		LoginRequest loginRequest = null;
 		try {
 			loginRequest = buildLoginRequest();
 
 			System.out.println("Sending message to websocket server: " + "\n" + loginRequest);
-			fusionClient.sendMessage(loginRequest);
+			fusionClient.sendMessage(loginRequest, currentServiceID);
 
 			boolean waitingForResponse = true;
 
@@ -142,7 +107,7 @@ public class FusionClientDemo {
 
 					boolean serviceIDMatchesRequest = response.getMessageHeader() != null //
 							&& response.getMessageHeader().getServiceID()
-									.equalsIgnoreCase(loginRequest.getMessageHeader().getServiceID());
+									.equalsIgnoreCase(currentServiceID);
 
 					if (serviceIDMatchesRequest && response.getLoginResponse() != null //
 							&& response.getLoginResponse().getResponse() != null) {
@@ -188,14 +153,14 @@ public class FusionClientDemo {
 
 		ExecutorService executor = Executors.newSingleThreadExecutor();
 		Future<Void> payment = executor.submit(() -> {
-			SaleToPOIRequest paymentRequest = null;
+			PaymentRequest paymentRequest = null;
 
 			// Payment request
 			try {
-				paymentRequest = buildPaymentRequest(serviceID);
+				paymentRequest = buildPaymentRequest();
 
 				System.out.println("Sending message to websocket server: " + "\n" + paymentRequest);
-				fusionClient.sendMessage(paymentRequest);
+				fusionClient.sendMessage(paymentRequest, serviceID);
 
 				boolean waitingForResponse = true;
 				displayRequestThread.start();
@@ -210,14 +175,14 @@ public class FusionClientDemo {
 
 						boolean serviceIDMatchesRequest = response.getMessageHeader() != null //
 								&& response.getMessageHeader().getServiceID()
-										.equalsIgnoreCase(paymentRequest.getMessageHeader().getServiceID());
+										.equalsIgnoreCase(serviceID);
 
 						if (serviceIDMatchesRequest && response.getPaymentResponse().getResponse() != null) {
 							boolean saleTransactionIDMatchesRequest = response.getPaymentResponse()
 									.getSaleData() != null
 									&& response.getPaymentResponse().getSaleData().getSaleTransactionID() != null
 									&& response.getPaymentResponse().getSaleData().getSaleTransactionID()
-											.getTransactionID().equals(paymentRequest.getPaymentRequest().getSaleData()
+											.getTransactionID().equals(paymentRequest.getSaleData()
 													.getSaleTransactionID().getTransactionID());
 
 							if (!saleTransactionIDMatchesRequest) {
@@ -271,14 +236,16 @@ public class FusionClientDemo {
 	private static void checkTransactionStatus(String serviceID) {
 		System.out.println("Sending transaction status request to check status of payment...");
 
+		String newServiceID = MessageHeaderUtil.generateServiceID(10);
+
 		ExecutorService executor = Executors.newSingleThreadExecutor();
 		Future<Void> transaction = executor.submit(() -> {
-			SaleToPOIRequest transactionStatusRequest = null;
+			TransactionStatusRequest transactionStatusRequest = null;
 			try {
 				transactionStatusRequest = buildTransactionStatusRequest(serviceID);
 
 				System.out.println("Sending message to websocket server: " + "\n" + transactionStatusRequest);
-				fusionClient.sendMessage(transactionStatusRequest);
+				fusionClient.sendMessage(transactionStatusRequest, newServiceID);
 
 				boolean waitingForResponse = true;
 
@@ -292,7 +259,7 @@ public class FusionClientDemo {
 
 						boolean serviceIDMatchesRequest = response.getMessageHeader() != null
 								&& response.getMessageHeader().getServiceID()
-										.equalsIgnoreCase(transactionStatusRequest.getMessageHeader().getServiceID());
+										.equalsIgnoreCase(newServiceID);
 
 						if (serviceIDMatchesRequest && response.getTransactionStatusResponse() != null
 								&& response.getTransactionStatusResponse().getResponse() != null) {
@@ -362,7 +329,7 @@ public class FusionClientDemo {
 		}
 	}
 
-	private static SaleToPOIRequest buildLoginRequest() throws ConfigurationException {
+	private static LoginRequest buildLoginRequest() throws ConfigurationException {
 		// Login Request
 		SaleSoftware saleSoftware = new SaleSoftware.Builder()//
 				.providerIdentification(SaleSystemConfig.getInstance().getProviderIdentification())//
@@ -384,36 +351,10 @@ public class FusionClientDemo {
 				.operatorLanguage("en")//
 				.build();
 
-		// Message Header
-		MessageHeader messageHeader = new MessageHeader.Builder()//
-				.messageClass(MessageClass.Service)//
-				.messageCategory(MessageCategory.Login)//
-				.messageType(MessageType.Request)//
-				.serviceID(MessageHeaderUtil.generateServiceID(10))//
-				.saleID(SALE_ID)//
-				.POIID(POI_ID)//
-				.build();
-
-		SecurityTrailer securityTrailer = null;
-		try {
-			securityTrailer = SecurityTrailerUtil.generateSecurityTrailer(messageHeader, loginRequest,
-					KEKConfig.getInstance().getValue());
-		} catch (InvalidKeyException | NoSuchPaddingException | InvalidAlgorithmParameterException
-				| NoSuchAlgorithmException | IllegalBlockSizeException | BadPaddingException
-				| UnsupportedEncodingException | InvalidKeySpecException e) {
-			e.printStackTrace();
-		}
-
-		SaleToPOIRequest saleToPOI = new SaleToPOIRequest.Builder()//
-				.messageHeader(messageHeader)//
-				.request(loginRequest)//
-				.securityTrailer(securityTrailer)//
-				.build();
-
-		return saleToPOI;
+		return loginRequest;
 	}
 
-	private static SaleToPOIRequest buildPaymentRequest(String serviceID) throws ConfigurationException {
+	private static PaymentRequest buildPaymentRequest() throws ConfigurationException {
 		// Payment Request
 		SaleTransactionID saleTransactionID = new SaleTransactionID.Builder()//
 				.transactionID("transactionID" + new SimpleDateFormat("HH:mm:ssXXX").format(new Date()).toString())//
@@ -427,7 +368,7 @@ public class FusionClientDemo {
 
 		AmountsReq amountsReq = new AmountsReq.Builder()//
 				.currency("AUD")//
-				.requestedAmount(new BigDecimal(1000.00))//
+				.requestedAmount(new BigDecimal(100.00))//
 				.build();
 
 		SaleItem saleItem = new SaleItem.Builder()//
@@ -438,6 +379,11 @@ public class FusionClientDemo {
 				.unitPrice(new BigDecimal(100.00))//
 				.itemAmount(new BigDecimal(100.00))//
 				.productLabel("Product Label")//
+//				.addCustomField(new CustomField.Builder()
+//						.key("customFieldkey")
+//						.type(CustomFieldType.string)
+//						.value("customFieldkeyValue")
+//						.build())
 				.build();
 
 		PaymentInstrumentData paymentInstrumentData = new PaymentInstrumentData.Builder()//
@@ -459,36 +405,10 @@ public class FusionClientDemo {
 				.paymentData(paymentData)//
 				.saleData(saleData).build();
 
-		// Message Header
-		MessageHeader messageHeader = new MessageHeader.Builder()//
-				.messageClass(MessageClass.Service)//
-				.messageCategory(MessageCategory.Payment)//
-				.messageType(MessageType.Request)//
-				.serviceID(serviceID)//
-				.saleID(SALE_ID)//
-				.POIID(POI_ID)//
-				.build();
-
-		SecurityTrailer securityTrailer = null;
-		try {
-			securityTrailer = SecurityTrailerUtil.generateSecurityTrailer(messageHeader, paymentRequest,
-					KEKConfig.getInstance().getValue());
-		} catch (InvalidKeyException | NoSuchPaddingException | InvalidAlgorithmParameterException
-				| NoSuchAlgorithmException | IllegalBlockSizeException | BadPaddingException | InvalidKeySpecException
-				| IOException e) {
-			e.printStackTrace();
-		}
-
-		SaleToPOIRequest saleToPOI = new SaleToPOIRequest.Builder()//
-				.messageHeader(messageHeader)//
-				.request(paymentRequest)//
-				.securityTrailer(securityTrailer)//
-				.build();
-
-		return saleToPOI;
+		return paymentRequest;
 	}
 
-	private static SaleToPOIRequest buildTransactionStatusRequest(String serviceID) throws ConfigurationException {
+	private static TransactionStatusRequest buildTransactionStatusRequest(String serviceID) throws ConfigurationException {
 		// Transaction Status Request
 		MessageReference messageReference = new MessageReference.Builder()//
 				.messageCategory(MessageCategory.Payment)//
@@ -499,33 +419,7 @@ public class FusionClientDemo {
 
 		TransactionStatusRequest transactionStatusRequest = new TransactionStatusRequest(messageReference);
 
-		// Message Header
-		MessageHeader messageHeader = new MessageHeader.Builder()//
-				.messageClass(MessageClass.Service)//
-				.messageCategory(MessageCategory.TransactionStatus)//
-				.messageType(MessageType.Request)//
-				.serviceID(MessageHeaderUtil.generateServiceID(10))//
-				.saleID(SALE_ID)//
-				.POIID(POI_ID)//
-				.build();
-
-		SecurityTrailer securityTrailer = null;
-		try {
-			securityTrailer = SecurityTrailerUtil.generateSecurityTrailer(messageHeader, transactionStatusRequest,
-					KEKConfig.getInstance().getValue());
-		} catch (InvalidKeyException | NoSuchPaddingException | InvalidAlgorithmParameterException
-				| NoSuchAlgorithmException | IllegalBlockSizeException | BadPaddingException | InvalidKeySpecException
-				| IOException e) {
-			e.printStackTrace();
-		}
-
-		SaleToPOIRequest saleToPOI = new SaleToPOIRequest.Builder()//
-				.messageHeader(messageHeader)//
-				.request(transactionStatusRequest)//
-				.securityTrailer(securityTrailer)//
-				.build();
-
-		return saleToPOI;
+		return transactionStatusRequest;
 	}
 
 }
