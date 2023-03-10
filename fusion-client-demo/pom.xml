@@ -24,7 +24,12 @@
 		<dependency>
 			<groupId>com.datameshgroup.fusion</groupId>
 			<artifactId>fusion-cloud</artifactId>
-			<version>1.0.3</version>
+			<version>1.0.4</version>
+		</dependency>
+		<dependency>
+			<groupId>org.glassfish.tyrus.bundles</groupId>
+			<artifactId>tyrus-standalone-client</artifactId>
+			<version>1.9</version>
 		</dependency>
 	</dependencies>
 
