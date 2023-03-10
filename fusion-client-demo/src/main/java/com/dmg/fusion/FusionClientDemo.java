@@ -1,62 +1,17 @@
 package com.dmg.fusion;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.math.BigDecimal;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyManagementException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
-import java.security.spec.InvalidKeySpecException;
-import java.text.SimpleDateFormat;
-import java.time.Instant;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.naming.ConfigurationException;
-import javax.websocket.DeploymentException;
-
 import au.com.dmg.fusion.MessageHeader;
 import au.com.dmg.fusion.client.FusionClient;
 import au.com.dmg.fusion.config.FusionClientConfig;
 import au.com.dmg.fusion.config.KEKConfig;
 import au.com.dmg.fusion.config.SaleSystemConfig;
-import au.com.dmg.fusion.data.ErrorCondition;
-import au.com.dmg.fusion.data.MessageCategory;
-import au.com.dmg.fusion.data.MessageClass;
-import au.com.dmg.fusion.data.MessageType;
-import au.com.dmg.fusion.data.PaymentInstrumentType;
-import au.com.dmg.fusion.data.PaymentType;
-import au.com.dmg.fusion.data.SaleCapability;
-import au.com.dmg.fusion.data.TerminalEnvironment;
-import au.com.dmg.fusion.data.UnitOfMeasure;
+import au.com.dmg.fusion.data.*;
 import au.com.dmg.fusion.exception.NotConnectedException;
 import au.com.dmg.fusion.request.SaleTerminalData;
 import au.com.dmg.fusion.request.SaleToPOIRequest;
 import au.com.dmg.fusion.request.loginrequest.LoginRequest;
 import au.com.dmg.fusion.request.loginrequest.SaleSoftware;
-import au.com.dmg.fusion.request.paymentrequest.AmountsReq;
-import au.com.dmg.fusion.request.paymentrequest.PaymentData;
-import au.com.dmg.fusion.request.paymentrequest.PaymentInstrumentData;
-import au.com.dmg.fusion.request.paymentrequest.PaymentRequest;
-import au.com.dmg.fusion.request.paymentrequest.PaymentTransaction;
-import au.com.dmg.fusion.request.paymentrequest.SaleData;
-import au.com.dmg.fusion.request.paymentrequest.SaleItem;
-import au.com.dmg.fusion.request.paymentrequest.SaleTransactionID;
+import au.com.dmg.fusion.request.paymentrequest.*;
 import au.com.dmg.fusion.request.transactionstatusrequest.MessageReference;
 import au.com.dmg.fusion.request.transactionstatusrequest.TransactionStatusRequest;
 import au.com.dmg.fusion.response.Response;
@@ -65,6 +20,26 @@ import au.com.dmg.fusion.response.SaleToPOIResponse;
 import au.com.dmg.fusion.securitytrailer.SecurityTrailer;
 import au.com.dmg.fusion.util.MessageHeaderUtil;
 import au.com.dmg.fusion.util.SecurityTrailerUtil;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.naming.ConfigurationException;
+import javax.websocket.DeploymentException;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.*;
+import java.security.cert.CertificateException;
+import java.security.spec.InvalidKeySpecException;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Optional;
+import java.util.concurrent.*;
 
 public class FusionClientDemo {
 
@@ -96,7 +71,7 @@ public class FusionClientDemo {
 	}
 	
 	private static void initConfig() {
-		String certificateLocation = "src/main/resources/root.crt"; // test environment only - replace for production
+		String ENV = "DEV"; // test environment only - replace for production
 		String serverDomain = "wss://www.cloudposintegration.io/nexodev"; // test environment only - replace for production
 		String socketProtocol = "TLSv1.2";
 
@@ -110,7 +85,7 @@ public class FusionClientDemo {
 		String certificationCode = "98cf9dfc-0db7-4a92-8b8cb66d4d2d7169"; // test environment only - replace for production
 
 		try {
-			FusionClientConfig.init(certificateLocation, serverDomain, socketProtocol);
+			FusionClientConfig.init(serverDomain, socketProtocol, ENV);
 			KEKConfig.init(kekValue, keyIdentifier, keyVersion);
 			SaleSystemConfig.init(providerIdentification, applicationName, softwareVersion, certificationCode);
 		} catch (ConfigurationException e) {
