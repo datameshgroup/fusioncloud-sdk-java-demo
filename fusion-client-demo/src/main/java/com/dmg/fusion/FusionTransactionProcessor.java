@@ -44,6 +44,15 @@ public class FusionTransactionProcessor {
     private String kek;
     boolean useTestEnvironment = true;
 
+    //Timer settings; Update as needed.
+    int loginTimeout = 60;
+    int paymentTimeout = 60; //60
+    int errorHandlingTimeout = 90; //90
+
+    boolean waitingForResponse;
+    int secondsRemaining;
+    long prevTime;
+
     public FusionTransactionProcessor() {
         //these config values need to be configurable in POS
         saleID = "GU POS"; // Replace with your test SaleId provided by DataMesh
@@ -84,7 +93,7 @@ public class FusionTransactionProcessor {
                 fusionClient.sendMessage(loginRequest);
 
                 // Wait for response & handle
-                boolean waitingForResponse = true; // TODO: timeout handling
+                waitingForResponse = true; // TODO: timeout handling
                 while(waitingForResponse) {
                     SaleToPOI saleToPOI = fusionClient.readMessage();
 
@@ -108,7 +117,7 @@ public class FusionTransactionProcessor {
 
         boolean gotValidResponse = false;
         try {
-            gotValidResponse = login.get(60, TimeUnit.SECONDS); // set timeout
+            gotValidResponse = login.get(loginTimeout, TimeUnit.SECONDS); // set timeout
         } catch (TimeoutException e) {
             System.err.println("Payment Request Timeout...");
         } catch (ExecutionException | InterruptedException e) {
@@ -118,13 +127,14 @@ public class FusionTransactionProcessor {
     }
 
     private void doPayment() {
-        String serviceID = MessageHeaderUtil.generateServiceID(10);
+        String serviceID = MessageHeaderUtil.generateServiceID();
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         String abortReason = "";
         Future<Boolean> payment = executor.submit(() -> {
             SaleToPOIRequest paymentRequest = null;
             boolean gotValidResponse = false;
+
             // Payment request
             try {
                 paymentRequest = buildPaymentRequest(serviceID);
@@ -133,14 +143,16 @@ public class FusionTransactionProcessor {
                 fusionClient.sendMessage(paymentRequest);
 
                 // Wait for response & handle
-                boolean waitingForResponse = true; // TODO: timeout handling
+                waitingForResponse = true; // TODO: timeout handling
                 while(waitingForResponse) {
+                    prevTime = printSecondsRemaining("paymentRequest", prevTime);
+
                     SaleToPOI saleToPOI = fusionClient.readMessage();
 
                     if(saleToPOI == null) {
                         continue;
                     }
-
+                    // Handles Display Request
                     if( saleToPOI instanceof SaleToPOIRequest ) {
                         handleRequestMessage(saleToPOI);
                         continue;
@@ -164,7 +176,11 @@ public class FusionTransactionProcessor {
 
         boolean gotValidResponse = false;
         try {
-            gotValidResponse = payment.get(60, TimeUnit.SECONDS); // set timeout
+            //Prepare for timer print
+            prevTime = System.nanoTime();
+            secondsRemaining = paymentTimeout;
+
+            gotValidResponse = payment.get(paymentTimeout, TimeUnit.SECONDS); // set timeout
         } catch (TimeoutException e) {
             System.err.println("Payment Request Timeout...");
             abortReason = "Timeout";
@@ -185,6 +201,7 @@ public class FusionTransactionProcessor {
         Future<Boolean> transaction = executor.submit(() -> {
             SaleToPOIRequest transactionStatusRequest = null;
             boolean gotValidResponse = false;
+
             try {
 
                 if (abortReason != "") {
@@ -194,11 +211,12 @@ public class FusionTransactionProcessor {
                     fusionClient.sendMessage(abortTransactionPOIRequest);
                 }
 
+
                 boolean buildAndSendRequestMessage = true;
 
-                boolean waitingForResponse = true;
-
+                waitingForResponse = true;
                 while (waitingForResponse) {
+                    prevTime = printSecondsRemaining("transactionStatusRequest", prevTime);
                     if (buildAndSendRequestMessage) {
                         transactionStatusRequest = buildTransactionStatusRequest(serviceID);
 
@@ -233,7 +251,11 @@ public class FusionTransactionProcessor {
             return gotValidResponse;
         });
         try {
-            transaction.get(90, TimeUnit.SECONDS); // set timeout
+            //Prepare for timer print
+            prevTime = System.nanoTime();
+            secondsRemaining = errorHandlingTimeout;
+
+            transaction.get(errorHandlingTimeout, TimeUnit.SECONDS); // set timeout
         } catch (TimeoutException e) {
             System.err.println("Transaction Status Timeout...");
         } catch (ExecutionException | InterruptedException e) {
@@ -270,7 +292,7 @@ public class FusionTransactionProcessor {
                 .messageClass(MessageClass.Service)//
                 .messageCategory(MessageCategory.Login)//
                 .messageType(MessageType.Request)//
-                .serviceID(MessageHeaderUtil.generateServiceID(10))//
+                .serviceID(MessageHeaderUtil.generateServiceID())//
                 .saleID(saleID)//
                 .POIID(poiID)//
                 .build();
@@ -306,7 +328,7 @@ public class FusionTransactionProcessor {
 
         SaleItem saleItem = new SaleItem.Builder()//
                 .itemID(0)//
-                .productCode("productCode")//
+                .productCode("DMGTC44855")// Update this for Mock host testing
                 .unitOfMeasure(UnitOfMeasure.Other)//
                 .quantity(new BigDecimal(1))//
                 .unitPrice(new BigDecimal(100.00))//
@@ -370,7 +392,7 @@ public class FusionTransactionProcessor {
                 .messageClass(MessageClass.Service)//
                 .messageCategory(MessageCategory.TransactionStatus)//
                 .messageType(MessageType.Request)//
-                .serviceID(MessageHeaderUtil.generateServiceID(10))//
+                .serviceID(MessageHeaderUtil.generateServiceID())//
                 .saleID(saleID)//
                 .POIID(poiID)//
                 .build();
@@ -394,7 +416,7 @@ public class FusionTransactionProcessor {
                 .messageClass(MessageClass.Service)//
                 .messageCategory(MessageCategory.Abort)//
                 .messageType(MessageType.Request)//
-                .serviceID(MessageHeaderUtil.generateServiceID(10))//
+                .serviceID(MessageHeaderUtil.generateServiceID())//
                 .saleID(saleID)//
                 .POIID(poiID)//
                 .build();
@@ -430,6 +452,8 @@ public class FusionTransactionProcessor {
                 DisplayRequest displayRequest = request.getDisplayRequest();
                 if (displayRequest != null) {
                     log("Display Output = " + displayRequest.getDisplayText());
+
+                    //TODO: Update timer properly
                 }
             } else
                 log(messageCategory + " received during response message handling.");
@@ -438,7 +462,6 @@ public class FusionTransactionProcessor {
     }
 
     private boolean handleLoginResponseMessage(SaleToPOI msg) {
-        boolean waitingForResponse = true;
         MessageCategory messageCategory;
         if (msg instanceof SaleToPOIResponse) {
             SaleToPOIResponse response = (SaleToPOIResponse) msg;
@@ -596,9 +619,20 @@ public class FusionTransactionProcessor {
 
     private void log(Exception ex){
         log(ex.getMessage());
+        waitingForResponse = false;
     }
 
     private void log(String logData) {
         System.out.println(sdf.format(new Date(System.currentTimeMillis())) + " " + logData); // 2021.03.24.16.34.26
+    }
+
+    public long printSecondsRemaining(String transaction, long start) {
+        long currentTime = System.nanoTime();
+        float sec = (currentTime - start) / 1000000000;
+        if(sec==1) {
+            log("("+ transaction +") seconds remaining: " + (secondsRemaining--));
+            start = currentTime;
+        }
+        return start;
     }
 }
