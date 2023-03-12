@@ -46,8 +46,8 @@ public class FusionTransactionProcessor {
 
     public FusionTransactionProcessor() {
         //these config values need to be configurable in POS
-        saleID = "GU POS"; // Replace with your test SaleId provided by DataMesh
-        poiID = "DMGPOIGU"; // Replace with your test POIID provided by DataMesh
+        saleID = " "; // Replace with your test SaleId provided by DataMesh
+        poiID = " "; // Replace with your test POIID provided by DataMesh
 
         fusionClient = new FusionClient(useTestEnvironment); //need to override this in production
         kek = "44DACB2A22A4A752ADC1BBFFE6CEFB589451E0FFD83F8B21"; //for dev only, need to be replaced with prod value in prod
