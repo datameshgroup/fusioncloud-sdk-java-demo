@@ -9,7 +9,6 @@ import au.com.dmg.fusion.request.Request;
 import au.com.dmg.fusion.request.SaleTerminalData;
 import au.com.dmg.fusion.request.SaleToPOIRequest;
 import au.com.dmg.fusion.request.aborttransactionrequest.AbortTransactionRequest;
-import au.com.dmg.fusion.request.displayrequest.DisplayRequest;
 import au.com.dmg.fusion.request.loginrequest.LoginRequest;
 import au.com.dmg.fusion.request.loginrequest.SaleSoftware;
 import au.com.dmg.fusion.request.paymentrequest.*;
@@ -30,15 +29,14 @@ import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.TimeUnit;
 
 public class FusionTransactionProcessor {
     private FusionClient fusionClient;
 
     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
 
+    String mockHostProductCode = ""; //Update this for Mock Host Testing
     String providerIdentification = "Company A"; // test environment only - replace for production
     String applicationName = "POS Retail"; // test environment only - replace for production
     String softwareVersion = "01.00.00"; // test environment only - replace for production
@@ -49,21 +47,62 @@ public class FusionTransactionProcessor {
     boolean useTestEnvironment = true;
 
     //Timer settings; Update as needed.
-    int loginTimeout = 60;
-    int paymentTimeout = 60; //60
-    int errorHandlingTimeout = 90; //90
+    long milliMultiplier = 1000;
+    long loginTimeout = milliMultiplier * 60;
+    long paymentTimeout = milliMultiplier * 60; //60
+    long errorHandlingTimeout = milliMultiplier * 90; //90
+    long prevTime;
 
     boolean waitingForResponse;
     int secondsRemaining;
-    long prevTime;
 
-    MessageCategory currentTransaction = MessageCategory.Login;
+    MessageCategory currentTransaction = MessageCategory.Login; // TODO: currentTransaction validation
     String currentServiceID;
     String referenceServiceID;
 
-    ExecutorService executor = Executors.newSingleThreadExecutor();
-    Future<Boolean> responseMessage;
-    Callable<Boolean> callableMessageListener;
+    void Listen () {
+            // Print seconds remaining
+            prevTime = printSecondsRemaining(currentTransaction.toString(), prevTime);
+
+            FusionMessageHandler fmh = new FusionMessageHandler();
+
+            SaleToPOI saleToPOI;
+            saleToPOI = fusionClient.readMessage();
+
+            if(saleToPOI==null){
+                return;
+            }
+            if(saleToPOI instanceof SaleToPOIRequest ) {
+                //Reset timeout (Not applicable to transaction status)
+                FusionMessageResponse fmr = fmh.handle((SaleToPOIRequest) saleToPOI);
+                if(currentTransaction.equals(MessageCategory.Payment)){
+                    secondsRemaining = (int) (paymentTimeout/1000); //Converting to seconds
+                }
+                waitingForResponse=true;
+
+            }
+            if (saleToPOI instanceof SaleToPOIResponse) {
+                FusionMessageResponse fmr = fmh.handle((SaleToPOIResponse) saleToPOI);
+                waitingForResponse=false;
+                switch (fmr.messageCategory){
+                    case Event:
+                        SaleToPOIResponse spr = (SaleToPOIResponse) fmr.saleToPOI;
+                        EventNotification eventNotification = spr.getEventNotification();
+                        log("Event Details: " + eventNotification.getEventDetails());
+                        break;
+                    case Login:
+                        handleLoginResponseMessage((SaleToPOIResponse) fmr.saleToPOI);
+                        break;
+                    case Payment:
+                        handlePaymentResponseMessage((SaleToPOIResponse)fmr.saleToPOI);
+                        break;
+                    case TransactionStatus:
+                        handleTransactionResponseMessage((SaleToPOIResponse)fmr.saleToPOI);
+                        break;
+                }
+            }
+
+    }
 
     public FusionTransactionProcessor() {
         //these config values need to be configurable in POS
@@ -79,92 +118,13 @@ public class FusionTransactionProcessor {
         try {
             fusionClient.connect();
 
-            // Response Listener
-            callableMessageListener = () -> {
-                {
-                    log("Enters future----------");
-                    boolean gotValidResponse = false;
-                    Map<String, Boolean> responseResult = new HashMap<String, Boolean>();
-                    //Prepare for timer print
-                    prevTime = System.nanoTime();
-                    secondsRemaining = paymentTimeout;
-
-                    try {
-                        // Wait for response & handle
-                        waitingForResponse = true; // TODO: timeout handling
-                        while(waitingForResponse) {
-                            prevTime = printSecondsRemaining(currentTransaction.toString(), prevTime);
-
-                            SaleToPOI saleToPOI = fusionClient.readMessage();
-
-                            if(saleToPOI == null) {
-                                continue;
-                            }
-
-                            // Handles Display Request
-                            if( saleToPOI instanceof SaleToPOIRequest ) {
-                                waitingForResponse = false;
-                                handleRequestMessage(saleToPOI);
-                                continue;
-                            }
-
-                            if( saleToPOI instanceof SaleToPOIResponse ) {
-                                SaleToPOIResponse response = (SaleToPOIResponse) saleToPOI;
-                                log(String.format("Response(JSON): %s", response.toJson()));
-                                MessageCategory messageCategory = response.getMessageHeader().getMessageCategory();
-                                log("Message Category: " + messageCategory);
-
-                                if(!messageCategory.equals(currentTransaction) && !messageCategory.equals(MessageCategory.Event)){
-                                    log("Ignoring unexpected response above... /n" +
-                                            "Expected message category is: "+ currentTransaction +
-                                            "/n, Received: " + messageCategory);
-                                    continue;
-                                }
-
-                                switch (messageCategory){
-                                    case Event:
-                                        EventNotification eventNotification = response.getEventNotification();
-                                        log("Event Details: " + eventNotification.getEventDetails());
-                                        break;
-                                    case Login:
-                                        responseResult = handleLoginResponseMessage(response);
-                                        waitingForResponse = responseResult.getOrDefault("WaitingForAnotherResponse", false);
-                                        break;
-                                    case Payment:
-                                        responseResult = handlePaymentResponseMessage(saleToPOI);
-                                        waitingForResponse = responseResult.getOrDefault("WaitingForAnotherResponse", true);
-                                        break;
-                                    case TransactionStatus:
-                                        responseResult = handleTransactionResponseMessage(saleToPOI);
-                                        waitingForResponse = responseResult.getOrDefault("WaitingForAnotherResponse", true);
-                                        break;
-                                }
-                                if (!waitingForResponse) {
-                                    gotValidResponse = responseResult.getOrDefault("GotValidResponse", false);
-                                }
-                            } else{
-                                //TODO:verify this
-                                log("Unexpected response message received.");
-                            }
-                        }
-                    } catch (FusionException e) {
-                        log(e);
-                    }
-
-                    return gotValidResponse;
-                }
-            };
-
             if(doLogin()) {
                 doPayment();
             }
 
             fusionClient.disconnect();
             log("Disconnected from websocket server");
-            executor.shutdown();
-        } catch (FusionException e) {
-            log(e);
-        } catch (IOException e) {
+        } catch (FusionException | IOException e) {
             log(e);
         }
     }
@@ -175,78 +135,92 @@ public class FusionTransactionProcessor {
             SaleToPOIRequest loginRequest = buildLoginRequest(currentServiceID);
             log("Sending message to websocket server: " + "\n" + loginRequest);
             fusionClient.sendMessage(loginRequest);
-            currentTransaction = MessageCategory.Login;
+
+            //Set timeout
+            prevTime = System.currentTimeMillis();
+            secondsRemaining = (int) (loginTimeout/1000);
+
+            // Loop for Listener
+            waitingForResponse = true;
+            while(waitingForResponse) {
+                if(secondsRemaining<1) {
+                    log("Login Request Timeout...", true);
+                    break;
+                }
+                Listen();
+            }
         } catch (ConfigurationException e) {
             log(e);
         }
-
-        boolean gotValidResponse = false;
-        try {
-            responseMessage = executor.submit(callableMessageListener);
-            gotValidResponse = responseMessage.get(loginTimeout, TimeUnit.SECONDS); // set timeout
-        } catch (TimeoutException e) {
-            System.err.println("Payment Request Timeout...");
-        } catch (ExecutionException | InterruptedException e) {
-            log(String.format("Exception: %s", e.toString()), true);
-        } finally {
-           log("isDone " + responseMessage.isDone());
-        }
-        return gotValidResponse;
+        return true;
     }
 
     private void doPayment() {
         currentServiceID = MessageHeaderUtil.generateServiceID();
 
         //Preparing for Transaction Status Check
-        referenceServiceID = currentServiceID;
+        String abortReason = "";
+
         try {
             SaleToPOIRequest paymentRequest = buildPaymentRequest(currentServiceID);
             log("Sending message to websocket server: " + "\n" + paymentRequest);
             fusionClient.sendMessage(paymentRequest);
             currentTransaction = MessageCategory.Payment;
-        } catch (ConfigurationException e) {
-            log(e);
-        }
 
-        boolean gotValidResponse = false;
-        String abortReason = "";
-        try {
-            responseMessage = executor.submit(callableMessageListener);
-            gotValidResponse = responseMessage.get(paymentTimeout, TimeUnit.SECONDS); // set timeout
-        } catch (TimeoutException e) {
-            System.err.println("Payment Request Timeout...");
-            abortReason = "Timeout";
-        } catch (ExecutionException | InterruptedException e) {
+            // Set timeout
+            prevTime = System.currentTimeMillis();
+            secondsRemaining = (int) (paymentTimeout/1000);
+
+            waitingForResponse = true;
+            while(waitingForResponse) {
+                if(secondsRemaining < 1) {
+                    abortReason = "Timeout";
+                    log("Payment Request Timeout...", true);
+                    checkTransactionStatus(currentServiceID, abortReason);
+                    break;
+                }
+                Listen();
+            }
+        } catch (ConfigurationException e) {
             log(String.format("Exception: %s", e.toString()), true);
             abortReason = "Other Exception";
-        } finally {
-//            executor.shutdownNow();
-            log("isDone " + responseMessage.isDone());
-//            if (!gotValidResponse)
-//                checkTransactionStatus(referenceServiceID, abortReason);
+            checkTransactionStatus(currentServiceID, abortReason);
         }
     }
 
     private void checkTransactionStatus(String serviceID, String abortReason) {
-
         try {
+            if (abortReason != "") {
+                SaleToPOIRequest abortTransactionPOIRequest = buildAbortRequest(serviceID, abortReason);
+
+                log("Sending abort message to websocket server: " + "\n" + abortTransactionPOIRequest);
+                fusionClient.sendMessage(abortTransactionPOIRequest);
+            }
+
+
             SaleToPOIRequest transactionStatusRequest = buildTransactionStatusRequest(serviceID);
-        } catch (ConfigurationException e) {
-            throw new RuntimeException(e);
-        }
 
-        log("Sending transaction status request to check status of payment...");
+            log("Sending transaction status request to check status of payment...");
 
-        try {
-            responseMessage = executor.submit(callableMessageListener);
-            responseMessage.get(errorHandlingTimeout, TimeUnit.SECONDS); // set timeout
-        } catch (TimeoutException e) {
-            System.err.println("Transaction Status Timeout...");
-        } catch (ExecutionException | InterruptedException e) {
-            log(String.format("Exception: %s", e.toString()), true);
-        } finally {
-//            executor.shutdownNow();
-        }
+            fusionClient.sendMessage(transactionStatusRequest);
+            currentTransaction = MessageCategory.TransactionStatus;
+
+            // Set timeout
+            prevTime = System.currentTimeMillis();
+            secondsRemaining = (int) (errorHandlingTimeout/1000);
+
+            waitingForResponse = true;
+            while(waitingForResponse) {
+                if(secondsRemaining < 1) {
+                    log("Transaction Status Request Timeout...");
+                    log("Display on POS = Please check Satellite Transaction History", true);
+                    break;
+                }
+                Listen();
+            }
+            } catch (ConfigurationException e) {
+                throw new RuntimeException(e);
+            }
     }
 
     private SaleToPOIRequest buildLoginRequest(String serviceID) throws ConfigurationException {
@@ -312,8 +286,7 @@ public class FusionTransactionProcessor {
 
         SaleItem saleItem = new SaleItem.Builder()//
                 .itemID(0)//
-                .productCode("")
-//                .productCode("DMGTC44855")// Update this for Mock host testing
+                .productCode(mockHostProductCode)//
                 .unitOfMeasure(UnitOfMeasure.Other)//
                 .quantity(new BigDecimal(1))//
                 .unitPrice(new BigDecimal(100.00))//
@@ -396,21 +369,21 @@ public class FusionTransactionProcessor {
         return saleToPOI;
     }
 
-    private SaleToPOIRequest buildAbortRequest(String paymentServiceID, String abortReason)
-            throws ConfigurationException {
-
+    private SaleToPOIRequest buildAbortRequest(String paymentServiceID, String abortReason) {
+        currentServiceID = MessageHeaderUtil.generateServiceID();
+        referenceServiceID = paymentServiceID;
         // Message Header
         MessageHeader messageHeader = new MessageHeader.Builder()//
                 .messageClass(MessageClass.Service)//
                 .messageCategory(MessageCategory.Abort)//
                 .messageType(MessageType.Request)//
-                .serviceID(MessageHeaderUtil.generateServiceID())//
+                .serviceID(currentServiceID)//
                 .saleID(saleID)//
                 .POIID(poiID)//
                 .build();
 
         MessageReference messageReference = new MessageReference.Builder().messageCategory(MessageCategory.Abort)
-                .serviceID(paymentServiceID).build();
+                .serviceID(referenceServiceID).build();
 
         AbortTransactionRequest abortTransactionRequest = new AbortTransactionRequest(messageReference, abortReason);
 
@@ -429,215 +402,122 @@ public class FusionTransactionProcessor {
             return SecurityTrailerUtil.generateSecurityTrailer(messageHeader, request, useTestEnvironment);
     }
 
-    // Refresh timer every time there's a response from host
-    private void refreshTimer(MessageCategory mc){
 
-        log("start isDone " + responseMessage.isDone());
-        waitingForResponse = false;
-        log("end isDone " + responseMessage.isDone());
-
-        switch (currentTransaction){
-            case Payment:
-                secondsRemaining = paymentTimeout;
-                break;
-            case Login:
-                secondsRemaining = loginTimeout;
-                break;
-            case TransactionStatus:
-                secondsRemaining = errorHandlingTimeout;
-                break;
+    private Boolean handleLoginResponseMessage(SaleToPOIResponse response) {
+        // TODO Clean Validations here.
+        Boolean successfulLogin = false;
+        response.getLoginResponse().getResponse();
+        Response responseBody = response.getLoginResponse().getResponse();
+        if (responseBody.getResult() != null) {
+            log(String.format(" Login Result: %s ", responseBody.getResult()));
+            successfulLogin = true;
+            if (responseBody.getResult() != ResponseResult.Success) {
+                log(String.format("Error Condition: %s, Additional Response: %s",
+                        responseBody.getErrorCondition(), responseBody.getAdditionalResponse()));
+                successfulLogin = false;
+            }
         }
-        log("Refreshing timer to " + secondsRemaining);
-
-        try {
-            responseMessage = executor.submit(callableMessageListener);
-            responseMessage.get(secondsRemaining, TimeUnit.SECONDS); // set timeout
-        } catch (TimeoutException e) {
-            System.err.println(mc + " Request Timeout...");
-        } catch (ExecutionException | InterruptedException e) {
-            log(String.format("Exception: %s", e.toString()), true);
-        } finally {
-            log("isDone " + responseMessage.isDone());
-        }
-
+        return successfulLogin;
     }
 
-    private void handleRequestMessage(SaleToPOI msg) {
-        MessageCategory messageCategory = MessageCategory.Other;
-        if (msg instanceof SaleToPOIRequest) {
-            SaleToPOIRequest request = (SaleToPOIRequest) msg;
-            log(String.format("Request(JSON): %s", request.toJson()));
-            if (request.getMessageHeader() != null)
-                messageCategory = request.getMessageHeader().getMessageCategory();
-            if (messageCategory == MessageCategory.Display) {
-                DisplayRequest displayRequest = request.getDisplayRequest();
-                if (displayRequest != null) {
-                    log("Display Output = " + displayRequest.getDisplayText());
-                    //TODO: Update timer properly
-                    refreshTimer(messageCategory);
-
-                }
-            } else
-                log(messageCategory + " received during response message handling.");
-        } else {
-            log("Unexpected request message received.");
+    private Boolean handlePaymentResponseMessage(SaleToPOIResponse msg) {
+        Boolean successfulPayment = false;
+        Response responseBody = msg.getPaymentResponse().getResponse();
+        if (responseBody.getResult() != null) {
+            log(String.format("Payment Result: %s", responseBody.getResult()));
+            if (responseBody.getResult() != ResponseResult.Success) {
+                log(String.format("Error Condition: %s, Additional Response: %s",
+                        responseBody.getErrorCondition(),
+                        responseBody.getAdditionalResponse()));
+                successfulPayment = false;
+            }
+            else{
+                successfulPayment = true;
+            }
         }
+        return successfulPayment;
     }
 
-    private Map<String, Boolean> handleLoginResponseMessage(SaleToPOIResponse response) {
-        Map<String, Boolean> responseResult = new HashMap<String, Boolean>();
-        if(response.getLoginResponse() != null) {
-            response.getLoginResponse().getResponse();
-            Response responseBody = response.getLoginResponse().getResponse();
+    private void handleTransactionResponseMessage(SaleToPOIResponse msg) {
+        Response responseBody = null;
+
+        if (msg.getTransactionStatusResponse() != null
+                && msg.getTransactionStatusResponse().getResponse() != null) {
+            responseBody = msg.getTransactionStatusResponse().getResponse();
             if (responseBody.getResult() != null) {
-                log(String.format("Login Result: %s ", responseBody.getResult()));
-                if (responseBody.getResult() != ResponseResult.Success) {
+                log(
+                        String.format("Transaction Status Result: %s ", responseBody.getResult()));
+
+                if (responseBody.getResult() == ResponseResult.Success) {
+                    Response paymentResponseBody = null;
+
+                    if (msg.getTransactionStatusResponse().getRepeatedMessageResponse() != null
+                            && msg.getTransactionStatusResponse().getRepeatedMessageResponse()
+                            .getRepeatedResponseMessageBody() != null
+                            && msg.getTransactionStatusResponse().getRepeatedMessageResponse()
+                            .getRepeatedResponseMessageBody().getPaymentResponse() != null) {
+
+                        paymentResponseBody = msg.getTransactionStatusResponse()
+                                .getRepeatedMessageResponse().getRepeatedResponseMessageBody()
+                                .getPaymentResponse().getResponse();
+
+                    }
+
+                    if (paymentResponseBody != null) {
+                        log(String.format("Actual Payment Result: %s",
+                                        paymentResponseBody.getResult()));
+
+                        if (paymentResponseBody.getErrorCondition() != null
+                                || paymentResponseBody.getAdditionalResponse() != null) {
+                            log(
+                                    String.format("Error Condition: %s, Additional Response: %s",
+                                            paymentResponseBody.getErrorCondition(),
+                                            paymentResponseBody.getAdditionalResponse()));
+                        }
+                    }
+
+                } else if (responseBody.getErrorCondition() == ErrorCondition.InProgress) {
+                    log("Transaction in progress...");
+                    log(String.format("Error Condition: %s, Additional Response: %s",
+                            responseBody.getErrorCondition(), responseBody.getAdditionalResponse()));
+
+                    errorHandlingTimeout = (secondsRemaining - 10) * 1000; //decrement errorHandlingTimeout
+                    log("Sending another transaction status request after 10 seconds...");
+                    log("Remaining seconds until error handling timeout: " + secondsRemaining);
+                    String serviceID = msg.getTransactionStatusResponse().getMessageReference().getServiceID();
+                    try {
+                        TimeUnit.SECONDS.sleep(10);
+                        checkTransactionStatus(serviceID, "");
+                    } catch (InterruptedException e) {
+                        log(e);
+                    }
+
+                } else {
                     log(String.format("Error Condition: %s, Additional Response: %s",
                             responseBody.getErrorCondition(), responseBody.getAdditionalResponse()));
                 }
-                responseResult.put("GotValidResponse",true);
-                responseResult.put("WaitingForAnotherResponse",false);
             }
         }
-        return responseResult;
-    }
-
-    private  Map<String, Boolean> handlePaymentResponseMessage(SaleToPOI msg) {
-        Map<String, Boolean> responseResult = new HashMap<String, Boolean>();
-        MessageCategory messageCategory;
-        if (msg instanceof SaleToPOIResponse) {
-            SaleToPOIResponse response = (SaleToPOIResponse) msg;
-            log(String.format("Response(JSON): %s", response.toJson()));
-            response.getMessageHeader();
-            messageCategory = response.getMessageHeader().getMessageCategory();
-            Response responseBody = null;
-            log("Message Category: " + messageCategory);
-            switch (messageCategory) {
-                case Event:
-                    EventNotification eventNotification = response.getEventNotification();
-                    log("Event Details: " + eventNotification.getEventDetails());
-                    break;
-                case Payment:
-                    responseBody = response.getPaymentResponse().getResponse();
-                    if (responseBody.getResult() != null) {
-                        log(String.format("Payment Result: %s", responseBody.getResult()));
-                        if (responseBody.getResult() != ResponseResult.Success) {
-                            log(String.format("Error Condition: %s, Additional Response: %s",
-                                    responseBody.getErrorCondition(),
-                                    responseBody.getAdditionalResponse()));
-                        }
-                        responseResult.put("GotValidResponse", true);
-                    }
-                    responseResult.put("WaitingForAnotherResponse", false);
-                    break;
-                default:
-                    log(messageCategory + " received during Payment response message handling.");
-                    break;
-            }
-        } else
-            log("Unexpected response message received.");
-
-        return responseResult;
-    }
-
-    private  Map<String, Boolean> handleTransactionResponseMessage(SaleToPOI msg) {
-        Map<String, Boolean> responseResult = new HashMap<String, Boolean>();
-        MessageCategory messageCategory = MessageCategory.Other;
-        if (msg instanceof SaleToPOIResponse) {
-            SaleToPOIResponse response = (SaleToPOIResponse) msg;
-            log(String.format("Response(JSON): %s", response.toJson()));
-            response.getMessageHeader();
-            messageCategory = response.getMessageHeader().getMessageCategory();
-            Response responseBody = null;
-            log("Message Category: " + messageCategory);
-            switch (messageCategory) {
-                case Event:
-                    EventNotification eventNotification = response.getEventNotification();
-                    log("Event Details: " + eventNotification.getEventDetails());
-                    break;
-                case TransactionStatus:
-                    if (response.getTransactionStatusResponse() != null
-                            && response.getTransactionStatusResponse().getResponse() != null) {
-                        responseBody = response.getTransactionStatusResponse().getResponse();
-                        if (responseBody.getResult() != null) {
-                            log(
-                                    String.format("Transaction Status Result: %s ", responseBody.getResult()));
-
-                            if (responseBody.getResult() == ResponseResult.Success) {
-                                Response paymentResponseBody = null;
-
-                                if (response.getTransactionStatusResponse().getRepeatedMessageResponse() != null
-                                        && response.getTransactionStatusResponse().getRepeatedMessageResponse()
-                                        .getRepeatedResponseMessageBody() != null
-                                        && response.getTransactionStatusResponse().getRepeatedMessageResponse()
-                                        .getRepeatedResponseMessageBody().getPaymentResponse() != null) {
-
-                                    paymentResponseBody = response.getTransactionStatusResponse()
-                                            .getRepeatedMessageResponse().getRepeatedResponseMessageBody()
-                                            .getPaymentResponse().getResponse();
-
-                                }
-
-                                if (paymentResponseBody != null) {
-                                    log(
-                                            String.format("Actual Payment Result: %s",
-                                                    paymentResponseBody.getResult()));
-
-                                    if (paymentResponseBody.getErrorCondition() != null
-                                            || paymentResponseBody.getAdditionalResponse() != null) {
-                                        log(
-                                                String.format("Error Condition: %s, Additional Response: %s",
-                                                        paymentResponseBody.getErrorCondition(),
-                                                        paymentResponseBody.getAdditionalResponse()));
-                                    }
-                                }
-                                responseResult.put("GotValidResponse",true);
-                                responseResult.put("WaitingForAnotherResponse",false);
-
-                            } else if (responseBody.getErrorCondition() == ErrorCondition.InProgress) {
-                                log("Payment in progress...");
-                                log(String.format("Error Condition: %s, Additional Response: %s",
-                                        responseBody.getErrorCondition(), responseBody.getAdditionalResponse()));
-                                responseResult.put("BuildAndSendRequestMessage",true);
-                            } else {
-                                log(String.format("Error Condition: %s, Additional Response: %s",
-                                        responseBody.getErrorCondition(), responseBody.getAdditionalResponse()));
-                                responseResult.put("GotValidResponse",true);
-                                responseResult.put("WaitingForAnotherResponse",false);
-                            }
-                        }
-                    }
-                default:
-                    //TODO check where to put this
-//                    log(messageCategory + " received during Transaction Status response message handling.");
-                    log("Unrecognised message category", true);
-                    break;
-            }
-        } else
-            log("Unexpected response message received.");
-
-        return responseResult;
     }
 
     private void log(Exception ex){
         log(ex.getMessage());
         waitingForResponse = false;
     }
-    private void log(String logData, Boolean err) {
-        System.out.println(sdf.format(new Date(System.currentTimeMillis())) + " " + logData); // 2021.03.24.16.34.26
-        if(err){
+    private void log(String logData, Boolean stopWaiting) {
+        System.out.println(sdf.format(new Date(System.currentTimeMillis())) + ": " + logData); // 2021.03.24.16.34.26
+        if(stopWaiting){
             waitingForResponse = false;
-            executor.shutdownNow();
         }
     }
 
     private void log(String logData) {
-        System.out.println(sdf.format(new Date(System.currentTimeMillis())) + " " + logData); // 2021.03.24.16.34.26
+        System.out.println(sdf.format(new Date(System.currentTimeMillis())) + ": " + logData); // 2021.03.24.16.34.26
     }
 
     public long printSecondsRemaining(String transaction, long start) {
-        long currentTime = System.nanoTime();
-        float sec = (currentTime - start) / 1000000000;
+        long currentTime = System.currentTimeMillis();
+        long sec = (currentTime - start) / 1000;
         if(sec==1) {
             log("("+ transaction +") seconds remaining: " + (secondsRemaining--));
             start = currentTime;
